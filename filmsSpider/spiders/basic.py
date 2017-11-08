@@ -27,21 +27,39 @@ class BasicSpider(scrapy.Spider):
 			yield self.parse_item(selector, response)
 
 	def parse_item(self, selector, response):
-		l = ItemLoader(item=FilmItem(), selector=selector)
-		l.add_css('title', '.top-title::text')
-		l.add_css('subtitle', '.subtitle::text')
-		l.add_css('synopsis', '.synopsis::text')
-		l.add_css('duration', '.duration::text', MapCompose(self.parse_duration))
+		title = selector.css('.title::text').extract_first()
+		subtitle = selector.css('.subtitle::text').extract_first()
+		synopsis = selector.css('.synopsis::text').extract_first()
+		m = MapCompose(self.parse_duration)
+		duration = m(selector.css('.duration::text').extract())[0],
 
-		item_link = response.css('a.list-item-link::attr(href)').extract_first()
+		item_link = selector.css('a.list-item-link::attr(href)').extract_first()
+		# self.log("link %s" % urljoin(response.url, item_link));
 		if item_link is not None:
-			yield Request(urljoin(response.url, item_link))
+			return Request(urljoin(response.url, item_link), callback=self.parse_page, meta={
+				'URL': urljoin(response.url, item_link),
+				'title': title,
+				'subtitle': subtitle,
+				'synopsis' : synopsis,
+				'duration': duration
+				})
+		else:
+			return None;
+
+	def parse_page(self, response):
+		url = response.meta.get('URL')
+		l = ItemLoader(item=FilmItem())
+
+		l.add_value('title', response.meta.get('title'))
+		l.add_value('subtitle', response.meta.get('subtitle'))
+		l.add_value('synopsis', response.meta.get('synopsis'))
+		l.add_value('duration', response.meta.get('duration'))
 
 		# housekeeping
-		l.add_css('url', 'a.list-item-link::attr(href)', MapCompose(lambda i: urljoin(response.url, i)))
+		l.add_value('url', url)
 		l.add_value('date', datetime.datetime.now())
 
-		return l.load_item()
+		yield l.load_item()
 
 	def parse_duration(self, s):
 		matches = re.search('([0-9]+)', s)
